@@ -1,3 +1,10 @@
+"""
+Script to batch download the FIRST and WISE W1 postages
+stamps given a catalog of objects. The script, with a little
+manual edits, can either download the FIRST catalog, or load
+in a specified catalog from disk
+"""
+
 import io
 from tqdm import tqdm
 import numpy as np
@@ -38,7 +45,7 @@ def down_first_cata():
             for data in tqdm(response.iter_content()):
                 out_file.write(data)
 
-def _first(pos, first_dir, cutout_size=5., pad=0.):
+def _first(pos, first_dir, cutout_size=5., pad=0.,fn=None):
         '''Download the postage stamp from the FIRST catalog service
 
         pos - Astropy.angle.SkyCoord
@@ -49,6 +56,8 @@ def _first(pos, first_dir, cutout_size=5., pad=0.):
             The cutout size of the postage stamp to download
         pad - float
             Additional area to download for each postage stamp
+        fn - None or str
+            The file name to use when saving
         '''
         size = cutout_size + pad
 
@@ -60,7 +69,8 @@ def _first(pos, first_dir, cutout_size=5., pad=0.):
 
         try:
             res = requests.post('https://third.ucllnl.org/cgi-bin/firstcutout', data=data, stream=False)
-            fn = res.headers['content-disposition'].split('filename=')[-1].replace('"','')
+            if fn is None:
+                fn = res.headers['content-disposition'].split('filename=')[-1].replace('"','')
                 
             filename = f'{first_dir}/{fn}'
             with open(filename, 'wb') as out:
@@ -163,35 +173,42 @@ def reproject(master, slave, out_fits):
                            master_cp, 
                            overwrite=True)
                         
-def download(row):
+def download(row, ra='RA', dec='DEC'):
     '''Download the images from FIRST and WISE, and reproject them onto the grid of FIRST
     '''
-    pos = SkyCoord(ra=row['RA']*u.deg, dec=row['DEC']*u.deg)
-    fn, first_success = _first(pos, f_dir)
+    pos = SkyCoord(ra=row[ra]*u.deg, dec=row[dec]*u.deg)
+    fn, first_success = _first(pos, f_dir, fn=f"{row['rgz_name']}s.fits")
     if not first_success:
         return 'First_Failed'
     
     fn, wise_success = _wise(pos, fn, w_dir, pad=1)
     if not wise_success:
         return 'WISE_Failed'
+
+    try: 
+        reproject(f'{f_dir}/{fn}', f'{w_dir}/{fn}', f'{r_dir}/{fn}')
+    except Exception as e:
+        print(e)
+        fn = 'reprojection_failed'
         
-    reproject(f'{f_dir}/{fn}', f'{w_dir}/{fn}', f'{r_dir}/{fn}')
     return fn
 
 if __name__ == '__main__':
-    f_dir = 'Images/first'
-    w_dir = 'Images/wise'
-    r_dir = 'Images/wise_reprojected'
+    f_dir = 'Images_2/first'
+    w_dir = 'Images_2/wise'
+    r_dir = 'Images_2/wise_reprojected'
 
     make_dir(f_dir)
     make_dir(w_dir)
     make_dir(r_dir)
 
-    down_first_cata()
-    df = Table.read('first_14dec17.fits.gz').to_pandas()
-    sd = dd.from_pandas(df, npartitions=100)
+    # down_first_cata()
+    df = Table.read('static_rgz_flat_2016-08-02_full.csv').to_pandas()
+    sd = dd.from_pandas(df, npartitions=250)
 
-    sd['filename'] = sd.apply(lambda x: download(x), axis=1, meta=('filename', str))
+    print(sd)
+
+    sd['filename'] = sd.apply(lambda x: download(x,ra='radio.ra', dec='radio.dec'), axis=1, meta=('filename', str))
     with ProgressBar():
         a = sd.compute()
 

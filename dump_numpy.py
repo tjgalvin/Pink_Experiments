@@ -1,3 +1,9 @@
+"""
+Small helper script to scrap away the FITS header information
+and extract just the data array. Will place them into a numpy array
+which can then be dumped to disk. A lot easier to transfer
+tens of fils instead of tens of thousands
+"""
 import os
 from tqdm import tqdm
 import numpy as np 
