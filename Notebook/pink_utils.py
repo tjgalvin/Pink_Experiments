@@ -17,35 +17,73 @@ class heatmap(object):
         '''Path to the heatmap to load
         '''
         self.path = path
+        self.fd = None # File descriptor to access if needed
+        self.header_info = None
+
+    @property
+    def f(self):
+        """Helper to open a persistent filedescriptor. Will always start
+        at beginning of file
+        """
+        if self.fd is None:
+            self.fd = open(self.path, 'rb')
+        
+        self.fd.seek(0)
+
+        return self.fd
+
+    @property
+    def file_head(self):
+        '''Return the file header information from PINK
+        '''
+        # Get file handler seeked to zero
+        f = self.f
+    
+        no_images, som_width, som_height, som_depth = struct.unpack('i' * 4, f.read(4*4))
+        
+        return (no_images, som_width, som_height, som_depth)
+
+
+    @property
+    def details(self):
+        if self.header_info is None:
+            self.header_info = self.file_head
+        
+        return self.header_info
+
 
     def _ed_to_prob(self, ed, stretch=10, *args, **kwargs):
         '''Function to conver the euclidean distance to a likelihood
-        TODO: make function
         '''
         prob = 1. / ed**stretch
         prob = prob / prob.sum()
         
         return prob
 
+
     def _get_ed(self, index=0, *args, **kwargs):
         '''Get the Euclidean distance of the i't page
         '''
+        # Get file handler seeked to zero
+        f = self.f
 
-        with open(self.path, 'rb') as f:
-            no_images, som_width, som_height, som_depth = struct.unpack('i' * 4, f.read(4*4))
-            
-            size = som_width * som_height * som_depth
-            image_width = som_width
-            image_height = som_depth * som_height
+        # no_images, som_width, som_height, som_depth = struct.unpack('i' * 4, f.read(4*4))
+        no_images, som_width, som_height, som_depth = self.details
 
-            # Seek the image number here
-            f.seek(index * size * 4, 1)
-            array = np.array(struct.unpack('f' * size, f.read(size * 4)))
-            data = np.ndarray([som_width, som_height, som_depth], 'float', array)
-            data = np.swapaxes(data, 0, 2)
-            data = np.reshape(data, (image_height, image_width))
+        size = som_width * som_height * som_depth
+        image_width = som_width
+        image_height = som_depth * som_height
 
-            return data
+        # Seek the image number here
+        # f.seek(index * size * 4, 1)
+        f.seek(index * size * 4 + 4*4, 0)
+        array = np.array(struct.unpack('f' * size, f.read(size * 4)))
+        data = np.ndarray([som_width, som_height, som_depth], 'float', array)
+        data = np.swapaxes(data, 0, 2)
+        data = np.reshape(data, (image_height, image_width))
+
+        return data
+
 
     def ed(self, index=0, prob=False, *args, **kwargs):
         '''Get the slice of a heatmap that has been mapped
@@ -56,14 +94,6 @@ class heatmap(object):
         
         return arr
 
-    @property
-    def file_head(self):
-        '''Return the file header information from PINK
-        '''
-        with open(self.path, 'rb') as f:
-            no_images, som_width, som_height, som_depth = struct.unpack('i' * 4, f.read(4*4))
-            
-            return (no_images, som_width, som_height, som_depth)
 
 class image_binary(object):
     '''Helper to interact with a heatmap output
